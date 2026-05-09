@@ -1,0 +1,1 @@
+/Users/ericyu/Projects/dimensional-app/.claude/skills/gstack/setup-gbrain/SKILL.md
