@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { getSettings } from "../hooks/useSettings";
 
 interface Message {
   role: "user" | "assistant";
@@ -99,10 +100,11 @@ export default function ChatWindow() {
     setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
     try {
+      const { apiKey, model, systemPrompt } = getSettings();
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: nextMessages }),
+        body: JSON.stringify({ messages: nextMessages, apiKey, model, systemPrompt }),
       });
 
       if (!res.ok || !res.body) throw new Error("Request failed");
@@ -128,7 +130,7 @@ export default function ChatWindow() {
         const updated = [...prev];
         updated[updated.length - 1] = {
           role: "assistant",
-          content: "Something went wrong. Please check your API key and try again.",
+          content: "Something went wrong. Check that your API key is set in Settings.",
         };
         return updated;
       });

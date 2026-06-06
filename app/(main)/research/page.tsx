@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { getSettings } from "../../hooks/useSettings";
 
 interface FileItem {
   filename: string;
@@ -16,7 +17,7 @@ interface CitationResult {
   citation: string;
 }
 
-type Format = "APA" | "MLA" | "Chicago";
+type Format = "Bluebook" | "ALWD" | "California";
 
 function FileIcon({ type }: { type: string }) {
   const color =
@@ -179,7 +180,7 @@ function CitationCard({ result, format }: { result: CitationResult; format: Form
         {/* Citation */}
         <div>
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>{format} Citation</span>
+            <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>{format === "California" ? "California Style Manual" : format} Citation</span>
             <button
               onClick={() => copy(result.citation, "citation")}
               className="text-xs flex items-center gap-1 transition-colors"
@@ -214,7 +215,10 @@ export default function ResearchPage() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
-  const [format, setFormat] = useState<Format>("APA");
+  const [format, setFormat] = useState<Format>(() => {
+    if (typeof window === "undefined") return "Bluebook";
+    return getSettings().citationFormat;
+  });
   const [results, setResults] = useState<CitationResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -245,10 +249,11 @@ export default function ResearchPage() {
     setSearched(true);
     setResults([]);
     try {
+      const { apiKey, model } = getSettings();
       const res = await fetch("/api/citations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, filenames: Array.from(selected), format }),
+        body: JSON.stringify({ query, filenames: Array.from(selected), format, apiKey, model }),
       });
       const data = await res.json();
       setResults(data);
@@ -307,7 +312,7 @@ export default function ResearchPage() {
               className="flex rounded-lg border overflow-hidden shrink-0"
               style={{ borderColor: "var(--border)" }}
             >
-              {(["APA", "MLA", "Chicago"] as Format[]).map((f) => (
+              {(["Bluebook", "ALWD", "California"] as Format[]).map((f) => (
                 <button
                   key={f}
                   onClick={() => setFormat(f)}
@@ -371,7 +376,7 @@ export default function ResearchPage() {
             <div className="max-w-2xl space-y-4">
               <div className="flex items-center justify-between">
                 <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                  {results.length} result{results.length !== 1 ? "s" : ""} · {format}
+                  {results.length} result{results.length !== 1 ? "s" : ""} · {format === "California" ? "California Style Manual" : format}
                 </p>
                 <button
                   onClick={copyAll}

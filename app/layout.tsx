@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import "./globals.css";
-import Sidebar from "./components/Sidebar";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -9,8 +8,8 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "App",
-  description: "Web app",
+  title: "Para AI",
+  description: "Legal AI assistant",
 };
 
 export default function RootLayout({
@@ -20,11 +19,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${geistSans.variable} h-full`}>
-      <body className="h-full flex overflow-hidden" style={{ backgroundColor: "var(--content-bg)" }}>
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto">
-          {children}
-        </main>
+      <body className="h-full" style={{ backgroundColor: "var(--content-bg)" }}>
+        {children}
       </body>
     </html>
   );

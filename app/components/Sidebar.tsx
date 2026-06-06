@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState, useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { signOut } from "../lib/auth";
 
 const navItems = [
   {
@@ -128,7 +129,20 @@ function HelpModal({ onClose }: { onClose: () => void }) {
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [helpOpen, setHelpOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   const navLinkStyle = (active: boolean) => ({
     color: active ? "var(--text-primary)" : "var(--text-muted)",
@@ -241,25 +255,73 @@ export default function Sidebar() {
           })()}
 
           {/* User profile */}
-          <div
-            className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm cursor-pointer transition-colors"
-            style={{ color: "var(--text-muted)" }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLElement).style.backgroundColor = "var(--item-hover)";
-              (e.currentTarget as HTMLElement).style.color = "var(--text-primary)";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLElement).style.backgroundColor = "transparent";
-              (e.currentTarget as HTMLElement).style.color = "var(--text-muted)";
-            }}
-          >
-            <div
-              className="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-medium shrink-0"
-              style={{ backgroundColor: "#2a2a2a", color: "var(--text-primary)" }}
+          <div ref={profileRef} className="relative">
+            <button
+              onClick={() => setProfileOpen((v) => !v)}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors"
+              style={{
+                color: profileOpen ? "var(--text-primary)" : "var(--text-muted)",
+                backgroundColor: profileOpen ? "var(--item-active)" : "transparent",
+              }}
+              onMouseEnter={(e) => {
+                if (!profileOpen) {
+                  (e.currentTarget as HTMLElement).style.backgroundColor = "var(--item-hover)";
+                  (e.currentTarget as HTMLElement).style.color = "var(--text-primary)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!profileOpen) {
+                  (e.currentTarget as HTMLElement).style.backgroundColor = "transparent";
+                  (e.currentTarget as HTMLElement).style.color = "var(--text-muted)";
+                }
+              }}
             >
-              E
-            </div>
-            <span className="truncate text-xs">eric@example.com</span>
+              <div
+                className="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-medium shrink-0"
+                style={{ backgroundColor: "#2a2a2a", color: "var(--text-primary)" }}
+              >
+                E
+              </div>
+              <span className="truncate text-xs">eric@example.com</span>
+            </button>
+
+            {/* Dropdown */}
+            {profileOpen && (
+              <div
+                className="absolute bottom-full left-0 mb-1 w-full rounded-lg border overflow-hidden shadow-lg z-50"
+                style={{ backgroundColor: "#1a1a1a", borderColor: "var(--border)" }}
+              >
+                {/* Account info */}
+                <div className="px-3 py-2.5 border-b" style={{ borderColor: "var(--border)" }}>
+                  <p className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>Eric Yu</p>
+                  <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>eric@example.com</p>
+                </div>
+
+                {/* Menu items */}
+                <div className="py-1">
+                  <button
+                    onClick={() => { signOut(); router.replace("/login"); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors"
+                    style={{ color: "var(--text-muted)" }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLElement).style.backgroundColor = "var(--item-hover)";
+                      (e.currentTarget as HTMLElement).style.color = "var(--text-primary)";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLElement).style.backgroundColor = "transparent";
+                      (e.currentTarget as HTMLElement).style.color = "var(--text-muted)";
+                    }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                      <polyline points="16 17 21 12 16 7"/>
+                      <line x1="21" y1="12" x2="9" y2="12"/>
+                    </svg>
+                    Sign out
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </aside>

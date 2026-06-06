@@ -2,8 +2,6 @@ import Anthropic from "@anthropic-ai/sdk";
 import { readFile } from "fs/promises";
 import { join, extname } from "path";
 
-const client = new Anthropic();
-
 async function extractText(filename: string): Promise<string> {
   const filePath = join(process.cwd(), "public", "uploads", filename);
   const ext = extname(filename).toLowerCase();
@@ -15,18 +13,23 @@ async function extractText(filename: string): Promise<string> {
     return data.text;
   }
 
-  const buffer = await readFile(filePath, "utf-8");
-  return buffer;
+  return await readFile(filePath, "utf-8");
 }
 
 export async function POST(req: Request) {
-  const { query, filenames, format } = await req.json();
+  const { query, filenames, format, model, apiKey } = await req.json();
 
   if (!query || !filenames?.length) {
     return Response.json({ error: "Missing query or files" }, { status: 400 });
   }
 
-  // Read content from each selected file
+  const key = apiKey || process.env.ANTHROPIC_API_KEY;
+  if (!key) {
+    return Response.json({ error: "No API key configured. Add one in Settings." }, { status: 401 });
+  }
+
+  const client = new Anthropic({ apiKey: key });
+
   const docs = await Promise.all(
     filenames.map(async (filename: string) => {
       try {
@@ -49,14 +52,16 @@ export async function POST(req: Request) {
     .map((d, i) => `--- DOCUMENT ${i + 1}: ${d.name} ---\n${d.content}`)
     .join("\n\n");
 
-  const prompt = `You are a citation assistant. A user is searching across uploaded documents for relevant passages and needs proper citations.
+  const formatLabel = format === "California" ? "California Style Manual" : format;
+
+  const prompt = `You are a legal citation assistant. A user is searching across legal documents for relevant passages and needs proper legal citations.
 
 QUERY: "${query}"
 
 DOCUMENTS:
 ${docsBlock}
 
-For each document that contains content relevant to the query, return up to 2 relevant excerpts. For each excerpt, generate a ${format} citation using the document filename as the source title and today's date.
+For each document that contains content relevant to the query, return up to 2 relevant excerpts. For each excerpt, generate a ${formatLabel} citation. Use the document filename as the case or document name. Apply correct ${formatLabel} citation rules for legal documents, cases, statutes, or secondary sources as appropriate.
 
 Return ONLY a valid JSON array — no markdown, no explanation. Format:
 [
@@ -64,14 +69,14 @@ Return ONLY a valid JSON array — no markdown, no explanation. Format:
     "filename": "exact-filename-here",
     "name": "display name",
     "excerpt": "The exact relevant passage from the document (2–4 sentences)",
-    "citation": "Full ${format} citation string"
+    "citation": "Full ${formatLabel} citation string"
   }
 ]
 
 If no relevant content is found in a document, omit it. If nothing is relevant across all documents, return an empty array [].`;
 
   const message = await client.messages.create({
-    model: "claude-sonnet-4-6",
+    model: model || "claude-sonnet-4-6",
     max_tokens: 2048,
     messages: [{ role: "user", content: prompt }],
   });
