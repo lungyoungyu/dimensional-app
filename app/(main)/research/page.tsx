@@ -249,11 +249,13 @@ export default function ResearchPage() {
     setSearched(true);
     setResults([]);
     try {
-      const { apiKey, model } = getSettings();
+      const { provider, anthropicApiKey, openaiApiKey, anthropicModel, openaiModel } = getSettings();
+      const apiKey = provider === "openai" ? openaiApiKey : anthropicApiKey;
+      const model = provider === "openai" ? openaiModel : anthropicModel;
       const res = await fetch("/api/citations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, filenames: Array.from(selected), format, apiKey, model }),
+        body: JSON.stringify({ query, filenames: Array.from(selected), format, provider, apiKey, model }),
       });
       const data = await res.json();
       setResults(data);

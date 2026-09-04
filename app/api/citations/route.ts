@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { readFile } from "fs/promises";
 import { join, extname } from "path";
 
@@ -17,18 +18,16 @@ async function extractText(filename: string): Promise<string> {
 }
 
 export async function POST(req: Request) {
-  const { query, filenames, format, model, apiKey } = await req.json();
+  const { query, filenames, format, provider, model, apiKey } = await req.json();
 
   if (!query || !filenames?.length) {
     return Response.json({ error: "Missing query or files" }, { status: 400 });
   }
 
-  const key = apiKey || process.env.ANTHROPIC_API_KEY;
+  const key = apiKey || (provider === "openai" ? process.env.OPENAI_API_KEY : process.env.ANTHROPIC_API_KEY);
   if (!key) {
     return Response.json({ error: "No API key configured. Add one in Settings." }, { status: 401 });
   }
-
-  const client = new Anthropic({ apiKey: key });
 
   const docs = await Promise.all(
     filenames.map(async (filename: string) => {
@@ -75,13 +74,24 @@ Return ONLY a valid JSON array — no markdown, no explanation. Format:
 
 If no relevant content is found in a document, omit it. If nothing is relevant across all documents, return an empty array [].`;
 
-  const message = await client.messages.create({
-    model: model || "claude-sonnet-4-6",
-    max_tokens: 2048,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const raw = message.content[0].type === "text" ? message.content[0].text : "[]";
+  let raw = "[]";
+  if (provider === "openai") {
+    const client = new OpenAI({ apiKey: key });
+    const completion = await client.chat.completions.create({
+      model: model || "gpt-4o",
+      max_completion_tokens: 2048,
+      messages: [{ role: "user", content: prompt }],
+    });
+    raw = completion.choices[0]?.message?.content || "[]";
+  } else {
+    const client = new Anthropic({ apiKey: key });
+    const message = await client.messages.create({
+      model: model || "claude-sonnet-4-6",
+      max_tokens: 2048,
+      messages: [{ role: "user", content: prompt }],
+    });
+    raw = message.content[0].type === "text" ? message.content[0].text : "[]";
+  }
 
   try {
     const jsonMatch = raw.match(/\[[\s\S]*\]/);
