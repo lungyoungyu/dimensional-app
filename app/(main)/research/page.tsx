@@ -223,6 +223,7 @@ export default function ResearchPage() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [copiedAll, setCopiedAll] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/files")
@@ -248,6 +249,7 @@ export default function ResearchPage() {
     setLoading(true);
     setSearched(true);
     setResults([]);
+    setSearchError(null);
     try {
       const { provider, anthropicApiKey, openaiApiKey, anthropicModel, openaiModel } = getSettings();
       const apiKey = provider === "openai" ? openaiApiKey : anthropicApiKey;
@@ -258,7 +260,13 @@ export default function ResearchPage() {
         body: JSON.stringify({ query, filenames: Array.from(selected), format, provider, apiKey, model }),
       });
       const data = await res.json();
-      setResults(data);
+      if (!res.ok) {
+        setSearchError(data?.error || "Something went wrong. Please try again.");
+        return;
+      }
+      setResults(Array.isArray(data) ? data : []);
+    } catch {
+      setSearchError("Something went wrong. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -369,7 +377,12 @@ export default function ResearchPage() {
               <span className="text-sm">Searching documents…</span>
             </div>
           )}
-          {searched && !loading && results.length === 0 && (
+          {searched && !loading && searchError && (
+            <div className="flex items-center justify-center h-full" style={{ color: "#ff6b6b" }}>
+              <p className="text-sm">{searchError}</p>
+            </div>
+          )}
+          {searched && !loading && !searchError && results.length === 0 && (
             <div className="flex items-center justify-center h-full" style={{ color: "var(--text-muted)" }}>
               <p className="text-sm">No relevant passages found. Try a different query.</p>
             </div>
