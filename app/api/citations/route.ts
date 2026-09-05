@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
+import { PDFParse } from "pdf-parse";
 import { readFile } from "fs/promises";
 import { join, extname } from "path";
 import { rateLimit, getClientIp, rateLimitJsonResponse } from "../../lib/rateLimit";
@@ -13,18 +14,46 @@ const WINDOW_MS = 60_000;
 const MAX_FILENAMES = 10;
 const MAX_QUERY_LENGTH = 500;
 
-async function extractText(filename: string): Promise<string> {
+// Per-document caps on how much we send to the model. Applied at page
+// boundaries (never mid-page) so every included excerpt still has a page
+// number attached to it - the whole point of extracting per-page.
+const MAX_PAGES_PER_DOC = 40;
+const MAX_CHARS_PER_DOC = 40_000;
+
+interface PageChunk {
+  page: number | null;
+  text: string;
+}
+
+// PDFs: real per-page text via pdf-parse's PDFParse class (built on
+// pdfjs-dist), which returns text grouped by page number - this is what
+// makes a page-accurate citation link possible at all. Plain text files
+// have no native pagination, so they get a single page:null chunk (same
+// as before this fix - no page-jump link is offered for them).
+async function extractPages(filename: string): Promise<PageChunk[]> {
   const filePath = join(process.cwd(), "public", "uploads", filename);
   const ext = extname(filename).toLowerCase();
 
   if (ext === ".pdf") {
-    const pdfParse = (await import("pdf-parse")).default;
     const buffer = await readFile(filePath);
-    const data = await pdfParse(buffer);
-    return data.text;
+    const parser = new PDFParse({ data: buffer });
+    try {
+      const result = await parser.getText();
+      const chunks: PageChunk[] = [];
+      let totalChars = 0;
+      for (const p of result.pages) {
+        if (chunks.length >= MAX_PAGES_PER_DOC || totalChars >= MAX_CHARS_PER_DOC) break;
+        chunks.push({ page: p.num, text: p.text });
+        totalChars += p.text.length;
+      }
+      return chunks;
+    } finally {
+      await parser.destroy();
+    }
   }
 
-  return await readFile(filePath, "utf-8");
+  const text = await readFile(filePath, "utf-8");
+  return [{ page: null, text: text.slice(0, MAX_CHARS_PER_DOC) }];
 }
 
 export async function POST(req: Request) {
@@ -57,23 +86,28 @@ export async function POST(req: Request) {
   const docs = await Promise.all(
     filenames.map(async (filename: string) => {
       try {
-        const content = await extractText(filename);
+        const pages = await extractPages(filename);
         const name = filename.replace(/^\d+-/, "");
-        return { filename, name, content: content.slice(0, 12000) };
+        return { filename, name, pages };
       } catch {
         return null;
       }
     })
   );
 
-  const validDocs = docs.filter(Boolean) as { filename: string; name: string; content: string }[];
+  const validDocs = docs.filter(Boolean) as { filename: string; name: string; pages: PageChunk[] }[];
 
   if (validDocs.length === 0) {
     return Response.json({ error: "Could not read any files" }, { status: 400 });
   }
 
   const docsBlock = validDocs
-    .map((d, i) => `--- DOCUMENT ${i + 1}: ${d.name} ---\n${d.content}`)
+    .map((d, i) => {
+      const body = d.pages
+        .map((p) => (p.page !== null ? `[PAGE ${p.page}]\n${p.text}` : p.text))
+        .join("\n\n");
+      return `--- DOCUMENT ${i + 1}: ${d.name} ---\n${body}`;
+    })
     .join("\n\n");
 
   const formatLabel = format === "California" ? "California Style Manual" : format;
@@ -87,13 +121,19 @@ ${docsBlock}
 
 For each document that contains content relevant to the query, return up to 2 relevant excerpts. For each excerpt, generate a ${formatLabel} citation. Use the document filename as the case or document name. Apply correct ${formatLabel} citation rules for legal documents, cases, statutes, or secondary sources as appropriate.
 
+Rules for the "page" field in your response:
+- Text in the DOCUMENTS section is tagged with "[PAGE N]" markers. If an excerpt falls under one of these markers, set "page" to that exact number N, and use it as the pincite in the citation string (e.g. "at 4").
+- If a document has no "[PAGE N]" markers anywhere (a plain text file), set "page" to null.
+- Never guess, estimate, or interpolate a page number that was not explicitly marked in the source text above.
+
 Return ONLY a valid JSON array — no markdown, no explanation. Format:
 [
   {
     "filename": "exact-filename-here",
     "name": "display name",
     "excerpt": "The exact relevant passage from the document (2–4 sentences)",
-    "citation": "Full ${formatLabel} citation string"
+    "citation": "Full ${formatLabel} citation string",
+    "page": 4
   }
 ]
 
@@ -131,7 +171,27 @@ If no relevant content is found in a document, omit it. If nothing is relevant a
   try {
     const jsonMatch = raw.match(/\[[\s\S]*\]/);
     const results = JSON.parse(jsonMatch ? jsonMatch[0] : "[]");
-    return Response.json(results);
+
+    // Don't just trust the model's honesty about "page" - the prompt asks it
+    // not to guess, but nothing stops it from doing so anyway. Clamp against
+    // the page numbers we actually extracted for that file; anything that
+    // doesn't match a real page we sent becomes null rather than a
+    // confident-looking wrong link.
+    const validPagesByFile = new Map(
+      validDocs.map((d) => [
+        d.filename,
+        new Set(d.pages.map((p) => p.page).filter((n): n is number => n !== null)),
+      ])
+    );
+    const verified = Array.isArray(results)
+      ? results.map((r) => {
+          const validPages = validPagesByFile.get(r?.filename);
+          const page = typeof r?.page === "number" && validPages?.has(r.page) ? r.page : null;
+          return { ...r, page };
+        })
+      : results;
+
+    return Response.json(verified);
   } catch {
     return Response.json([]);
   }
