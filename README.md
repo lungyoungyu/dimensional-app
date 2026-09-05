@@ -18,6 +18,10 @@ Select source documents, ask a question, get excerpts with formatted legal citat
 
 ![Research citation tool](docs/screenshots/research.png)
 
+Each citation for a PDF source links to the exact page it came from — the source text is extracted per-page (not one flat blob), so "Page 3" opens the original PDF at page 3 rather than pointing nowhere.
+
+![Research citation with a linked page number](docs/screenshots/research-citation-page-link.png)
+
 ### Library
 Upload and manage PDF and text files.
 
