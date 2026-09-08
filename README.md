@@ -1,8 +1,10 @@
 # Para AI
 
-A legal AI assistant web app for analyzing documents, generating citations, and answering legal questions — powered by either Anthropic Claude or OpenAI, your choice.
+A legal AI assistant web app: upload documents, ask questions, get answers with citations that actually point at the page they came from. Runs on either Anthropic Claude or OpenAI — your key, your choice.
 
 Built with Next.js, TypeScript, and Tailwind CSS.
+
+Not a law firm tool in production use — this is a portfolio project. Treat citation output as a draft to verify, not a filed brief.
 
 ---
 
@@ -14,11 +16,11 @@ Streaming chat, powered by whichever provider is active in Settings.
 ![Assistant chat interface](docs/screenshots/assistant.png)
 
 ### Research
-Select source documents, ask a question, get excerpts with formatted legal citations.
+Pick source documents, ask a question, get excerpts with formatted legal citations.
 
 ![Research citation tool](docs/screenshots/research.png)
 
-Each citation for a PDF source links to the exact page it came from — the source text is extracted per-page (not one flat blob), so "Page 3" opens the original PDF at page 3 rather than pointing nowhere.
+Citations link to the exact page they came from. PDFs are extracted page-by-page rather than as one flat blob, so "Page 3" opens the source PDF at page 3 instead of just naming a number nobody can check.
 
 ![Research citation with a linked page number](docs/screenshots/research-citation-page-link.png)
 
@@ -34,19 +36,28 @@ Toggle between Anthropic Claude and OpenAI, each with its own API key and model.
 
 ---
 
-## Features
+## Why page-accurate citations were the hard part
 
-### Assistant
-Chat interface with streaming responses. Ask legal questions, analyze documents, and get precise answers. Supports multi-turn conversations with a configurable system prompt.
+Anyone can ask a model to "cite your sources." The actual work is making the citation checkable.
 
-### Research
-Upload legal documents and generate citations from them. Select one or more source documents, enter a search query, and get relevant excerpts with properly formatted legal citations. Supports Bluebook, ALWD, and California Style Manual formats.
+`pdf-parse`'s `PDFParse` class (built on `pdfjs-dist`) returns text grouped by page, not as one string — so extraction happens per page, and chunking respects page boundaries instead of splitting mid-page. That's the only reason a citation can say "Page 3" and mean it. Each document is capped at 40 pages / 40,000 characters sent to the model, so a 300-page filing doesn't blow the context window — but the cap is applied at a page boundary, never mid-page, so whatever gets through still carries an accurate page number.
 
-### Library
-Upload and manage PDF and text files. Files are stored on the server and can be previewed directly in the browser — images and PDFs render inline, text files display as formatted content.
+Plain `.txt` files have no such thing as a page, so they get a single `page: null` chunk and no page-jump link. That's not a missing feature, it's just what a text file is.
 
-### AI Provider Toggle
-Switch between Anthropic Claude and OpenAI in Settings. Each provider keeps its own API key and model selection — switching back and forth never overwrites or exposes the other provider's saved key.
+## Two rate-limit tiers, and why they're not the same number
+
+`/api/chat` and `/api/citations` both rate-limit per IP, but BYOK (bring-your-own-key) callers and server-key callers aren't throttled the same way — a BYOK caller is burning their own API quota, a server-key caller is burning the app owner's:
+
+| Route | BYOK limit | Server-key limit |
+|---|---|---|
+| `/api/chat` | 30 / min | 5 / min |
+| `/api/citations` | 15 / min | 5 / min |
+
+The limiter itself (`app/lib/rateLimit.ts`) is a plain in-memory fixed-window bucket keyed by `ip:route:tier` — fine for one process, and it says so in a comment, because the honest answer is "swap this for Upstash Redis before this touches real traffic," not "this scales."
+
+## Settings survive the schema changing under them
+
+Per-provider settings (`app/hooks/useSettings.ts`) used to be a single `apiKey`/`model` pair before OpenAI support existed. Rather than break existing localStorage on upgrade, `migrate()` folds the old single-provider shape into the new per-provider one the first time settings load — so a key you saved before this shipped doesn't just vanish.
 
 ---
 
@@ -74,7 +85,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
 ```
 
-Either variable is optional — set whichever provider(s) you plan to use. Alternatively, add your API key directly in the app via **Settings** after signing in; per-provider keys entered there are stored in the browser and take priority over the server-side env vars.
+Either variable is optional — set whichever provider(s) you plan to use. You can also skip this and add a key directly in the app via **Settings** after signing in; a key entered there is stored in the browser and takes priority over the server-side env var for that provider.
 
 ### Running locally
 
@@ -82,7 +93,7 @@ Either variable is optional — set whichever provider(s) you plan to use. Alter
 npx next dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:3000](http://localhost:3000).
 
 ### Demo credentials
 
@@ -90,6 +101,8 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 Email:    eric@example.com
 Password: demo
 ```
+
+This is a hardcoded check in `app/lib/auth.ts` against one email/password pair — there's no user table. See [Notes and limitations](#notes-and-limitations).
 
 ---
 
@@ -101,44 +114,49 @@ Password: demo
 | Language | TypeScript |
 | Styling | Tailwind CSS v4 |
 | AI | Anthropic Claude (`claude-sonnet-4-6` / `claude-opus-4-8`) or OpenAI (`gpt-4o` / `gpt-4o-mini`) |
-| File parsing | `pdf-parse` |
-| Auth | localStorage (demo only) |
+| File parsing | `pdf-parse` (`PDFParse`, backed by `pdfjs-dist`) |
+| Auth | localStorage, one hardcoded demo credential |
 | Storage | Local filesystem (`public/uploads/`) |
-
----
 
 ## Project Structure
 
 ```
 app/
-├── (main)/               # Authenticated app routes
+├── (main)/
 │   ├── assistant/        # Chat interface
 │   ├── research/         # Citation generator
 │   ├── library/          # File manager
-│   └── settings/         # Provider toggle, API keys, model, citation format
+│   ├── settings/         # Provider toggle, API keys, model, citation format
+│   ├── history/          # Stub — sidebar link, no page built yet
+│   ├── vault/            # Stub — sidebar link, no page built yet
+│   ├── workflows/        # Stub — sidebar link, no page built yet
+│   └── help/             # Stub — sidebar link, no page built yet
 ├── api/
 │   ├── chat/             # Streaming chat endpoint (Anthropic + OpenAI)
-│   ├── citations/        # Citation generation endpoint (Anthropic + OpenAI)
+│   ├── citations/        # Per-page extraction + citation generation
 │   ├── upload/           # File upload endpoint
 │   └── files/            # File listing endpoint
 ├── components/
 │   ├── Sidebar.tsx       # Navigation + profile dropdown
 │   ├── ChatWindow.tsx    # Chat UI with streaming
+│   ├── PageShell.tsx     # Shared layout for stub pages
 │   └── AuthGuard.tsx     # Client-side route protection
 ├── lib/
 │   ├── auth.ts           # Sign in / sign out / auth check
-│   └── rateLimit.ts      # Per-IP rate limiting for AI routes
+│   └── rateLimit.ts       # Per-IP, per-tier rate limiting
 ├── hooks/
-│   └── useSettings.ts    # Per-provider settings persistence (localStorage)
+│   └── useSettings.ts    # Per-provider settings + old-schema migration
 └── login/                # Login page
 ```
 
+The sidebar shows History, Vault, Workflows, and Help alongside the real pages — they're there because the nav design called for them, not because they're finished. Each one renders `PageShell` with a title and a one-line description and nothing else. If you click into one expecting a feature, that's the honest state of it right now.
+
 ---
 
-## Notes
+## Notes and limitations
 
-- **File storage** uses the local filesystem (`public/uploads/`). This works for local development but will not persist on serverless platforms like Vercel. For production, swap in a cloud storage provider (AWS S3, Cloudflare R2, Vercel Blob).
-- **Authentication** is client-side localStorage only, with no server-side session — suitable for demos, not production. For real auth, use [Clerk](https://clerk.com), [Auth0](https://auth0.com), or [Supabase Auth](https://supabase.com/auth).
-- **API keys** can be set via `.env.local` or entered per-provider in Settings. A key entered in Settings is stored in the browser's localStorage and sent to your own Next.js API routes — it never goes directly to the provider from the client.
-- **Rate limiting** on `/api/chat` and `/api/citations` is in-memory and per-process — fine for a single server instance, but it won't share state across multiple serverless instances. A production deployment behind real traffic should move this to a shared store (e.g. Upstash Redis).
-- **Research citations** are generated from the first 12,000 characters of each document with no page/location tracking (`pdf-parse` returns flat text, not structured position data) — treat citation strings as a starting point to verify, not a pincite.
+- **File storage** is the local filesystem (`public/uploads/`). Fine for local dev, gone on the next deploy on Vercel or any other serverless platform. Swap in S3, R2, or Vercel Blob before deploying anywhere that isn't your own machine.
+- **Auth** is a single hardcoded email/password check with no server-side session — see [Demo credentials](#demo-credentials). It exists to gate the demo, not to protect anything. Use Clerk, Auth0, or Supabase Auth for real auth.
+- **API keys** live in `.env.local` or in Settings (browser localStorage). A key entered in Settings goes to your own Next.js API route, never directly from the browser to Anthropic or OpenAI.
+- **Rate limiting** is in-memory and per-process — see [the tiers above](#two-rate-limit-tiers-and-why-theyre-not-the-same-number). It resets if you restart the dev server, and it doesn't share state across multiple instances.
+- **Citation excerpts** come from the first 40 pages / 40,000 characters of each document. Beyond that, or for a plain text file, there's no location tracking to point back to. Verify anything you'd actually cite.
