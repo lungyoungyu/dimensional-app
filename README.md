@@ -4,8 +4,6 @@ A legal AI assistant web app: upload documents, ask questions, get answers with 
 
 Built with Next.js, TypeScript, and Tailwind CSS.
 
-Not a law firm tool in production use — this is a portfolio project. Treat citation output as a draft to verify, not a filed brief.
-
 ---
 
 ## Screenshots
